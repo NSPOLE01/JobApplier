@@ -26,6 +26,9 @@ const PROFILE = {
   zip: '94105',
   country: 'United States',
   heardAbout: 'LinkedIn',
+  school: 'University of Texas at Austin',
+  degree: "Bachelor's Degree",
+  discipline: 'Computer Science',
   customFields: [{ pattern: 'authorized to work', value: 'Yes' }],
 };
 
@@ -125,6 +128,41 @@ function valueOf(window, selector) {
   check('referred-by not treated as a name', valueOf(window, '#ref'), '');
   check('hidden subtree skipped', valueOf(window, '#hid'), '');
   check('site search box skipped', valueOf(window, '[name=q]'), '');
+}
+
+// --- education section -------------------------------------------------------
+{
+  const { window } = run(`<form>
+    <label for="sch">School</label><input id="sch" name="job_application[educations][][school_name]" type="text">
+    <label for="deg">Degree</label>
+    <select id="deg"><option value="">Select</option><option value="3">Bachelor's Degree</option><option value="4">Master's Degree</option></select>
+    <label for="dis">Discipline</label><input id="dis" type="text">
+    <div><label for="gpa">GPA</label><input id="gpa" type="text"></div>
+    <div><label for="hs">High School Name</label><input id="hs" type="text"></div>
+    <div><label for="su">University Website</label><input id="su" type="url"></div>
+  </form>`);
+
+  check('school (underscored name attribute)', valueOf(window, '#sch'), 'University of Texas at Austin');
+  check('degree select', valueOf(window, '#deg'), '3');
+  check('discipline', valueOf(window, '#dis'), 'Computer Science');
+  check('gpa left alone', valueOf(window, '#gpa'), '');
+  check('high school excluded', valueOf(window, '#hs'), '');
+  check('university website not given portfolio', valueOf(window, '#su'), '');
+}
+
+{
+  const { window } = run(`<form><label for="maj">Major / Field of Study</label><input id="maj" type="text"></form>`);
+  check('major maps to discipline', valueOf(window, '#maj'), 'Computer Science');
+}
+
+{
+  // Two education rows: the second is a different school, so leave it blank.
+  const { window } = run(`<form>
+    <div><label for="s1">School</label><input id="s1" type="text"></div>
+    <div><label for="s2">School</label><input id="s2" type="text"></div>
+  </form>`);
+  check('first education row filled', valueOf(window, '#s1'), 'University of Texas at Austin');
+  check('second education row left blank', valueOf(window, '#s2'), '');
 }
 
 // --- overwrite mode ----------------------------------------------------------

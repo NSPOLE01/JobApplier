@@ -38,6 +38,19 @@
     { key: 'fullName', exclude: [...PERSON_EXCLUDE, /company\s*name/i, /school\s*name/i, /university/i, /file\s*name/i], patterns: [/full\s*name/i, /your\s*name/i, /^\s*name\s*$/i, /legal\s*name/i] },
     { key: 'currentCompany', patterns: [/current\s*(company|employer)/i, /^\s*company\s*$/i, /\bemployer\b/i] },
     { key: 'currentTitle', patterns: [/current\s*(title|role|position)/i, /job\s*title/i, /^\s*title\s*$/i, /occupation/i] },
+    {
+      key: 'school',
+      exclude: [/high\s*school/i, /(school|universit\w*|college)\s*(e-?mail|web\s*site|url|address|phone|link)/i],
+      patterns: [/school/i, /universit/i, /college/i, /\binstitution\b/i, /alma\s*mater/i],
+    },
+    {
+      key: 'degree',
+      patterns: [/degree/i, /education\s*level/i, /level\s*of\s*education/i, /qualification/i],
+    },
+    {
+      key: 'discipline',
+      patterns: [/discipline/i, /\bmajor\b/i, /field\s*of\s*study/i, /course\s*of\s*study/i, /area\s*of\s*study/i, /concentration/i],
+    },
     { key: 'address', patterns: [/street\s*address/i, /address\s*line\s*1/i, /^\s*address\s*$/i] },
     { key: 'city', patterns: [/\bcity\b/i, /\btown\b/i, /locality/i] },
     { key: 'state', patterns: [/\bstate\b/i, /province/i, /\bregion\b/i] },
@@ -47,6 +60,12 @@
     { key: 'salary', patterns: [/salary/i, /compensation\s*(expectation|requirement)/i, /desired\s*pay/i] },
     { key: 'heardAbout', patterns: [/how\s*did\s*you\s*hear/i, /referral\s*source/i, /where\s*did\s*you\s*(hear|find)/i] },
   ];
+
+  // Keys filled at most once per frame.
+  const FILL_ONCE = new Set([
+    'fullName', 'firstName', 'lastName', 'email', 'phone',
+    'school', 'degree', 'discipline',
+  ]);
 
   // Input types safe to type into. Checkboxes, radios, files and passwords are skipped.
   const FILLABLE_TYPES = new Set(['text', 'email', 'tel', 'url', 'search', '']);
@@ -80,7 +99,14 @@
   function signalsFor(el) {
     const parts = [];
     const push = (v) => {
-      if (v && String(v).trim()) parts.push(String(v).trim());
+      if (!v) return;
+      const text = String(v).trim();
+      if (!text) return;
+      parts.push(text);
+      // job_application[school_name] -> "job application school name", so
+      // patterns with word boundaries still match attribute names.
+      const spaced = text.replace(/[_\-.[\]]+/g, ' ').replace(/\s+/g, ' ').trim();
+      if (spaced && spaced !== text) parts.push(spaced);
     };
 
     if (el.id) {
@@ -210,11 +236,10 @@
       const value = match.key === '__custom__' ? match.value : profile[match.key];
       if (!value || !String(value).trim()) continue;
 
-      // firstName/lastName/fullName can all match the same box; fill each once.
+      // Some keys must not repeat down the page: a second education row is a
+      // different school, not the same one again.
       const dedupeKey = match.key === '__custom__' ? `custom:${value}` : match.key;
-      if (seenKeys.has(dedupeKey) && ['fullName', 'firstName', 'lastName', 'email', 'phone'].includes(match.key)) {
-        continue;
-      }
+      if (seenKeys.has(dedupeKey) && FILL_ONCE.has(match.key)) continue;
 
       let ok = true;
       if (el instanceof HTMLSelectElement) {

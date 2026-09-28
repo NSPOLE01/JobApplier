@@ -1,8 +1,8 @@
 # JobApplier Autofill
 
 A Chrome extension (Manifest V3) that fills job application forms with your details in one click.
-Store your GitHub, LinkedIn, website and contact info once, then hit **Fill this page** on any
-application form.
+Store your GitHub, LinkedIn, website, contact details and education once, then hit
+**Fill this page** on any application form.
 
 ## Install (unpacked)
 
@@ -74,3 +74,5 @@ npm test
   never leaves Google's sync. The extension makes no network requests.
 - Resume file uploads are not handled. Chrome extensions cannot set a file input's value.
 - Custom dropdowns built from `div` elements rather than `select` are not filled.
+- Education is filled for one entry only. If a form has several school rows, the first is filled and
+  the rest are left for you, since they are different schools.
