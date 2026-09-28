@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>JobApplier Autofill</title>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="dot"></span>
+        <h1>JobApplier</h1>
+      </div>
+      <button id="fill" class="primary">Fill this page</button>
+      <p id="status" class="status" role="status"></p>
+    </header>
+
+    <main>
+      <section>
+        <h2>Links</h2>
+        <label>GitHub<input data-field="github" type="url" placeholder="https://github.com/you" /></label>
+        <label>LinkedIn<input data-field="linkedin" type="url" placeholder="https://linkedin.com/in/you" /></label>
+        <label>Website / Portfolio<input data-field="portfolio" type="url" placeholder="https://you.dev" /></label>
+        <label>Twitter / X<input data-field="twitter" type="url" placeholder="https://x.com/you" /></label>
+      </section>
+
+      <section>
+        <h2>About you</h2>
+        <div class="row">
+          <label>First name<input data-field="firstName" type="text" /></label>
+          <label>Last name<input data-field="lastName" type="text" /></label>
+        </div>
+        <label>Full name<input data-field="fullName" type="text" /></label>
+        <label>Email<input data-field="email" type="email" /></label>
+        <label>Phone<input data-field="phone" type="tel" /></label>
+        <label>Pronouns<input data-field="pronouns" type="text" placeholder="they/them" /></label>
+      </section>
+
+      <section>
+        <h2>Location</h2>
+        <label>Street address<input data-field="address" type="text" /></label>
+        <div class="row">
+          <label>City<input data-field="city" type="text" /></label>
+          <label>State<input data-field="state" type="text" /></label>
+        </div>
+        <div class="row">
+          <label>ZIP<input data-field="zip" type="text" /></label>
+          <label>Country<input data-field="country" type="text" /></label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Work</h2>
+        <label>Current company<input data-field="currentCompany" type="text" /></label>
+        <label>Current title<input data-field="currentTitle" type="text" /></label>
+        <label>Salary expectation<input data-field="salary" type="text" /></label>
+        <label>How did you hear about us<input data-field="heardAbout" type="text" /></label>
+      </section>
+
+      <section>
+        <h2>Custom fields</h2>
+        <p class="hint">Match any other question by keyword. The keyword is matched against the field's label, placeholder, and name.</p>
+        <div id="customRows"></div>
+        <button id="addCustom" class="secondary">+ Add custom field</button>
+      </section>
+
+      <section>
+        <label class="checkbox">
+          <input id="overwrite" type="checkbox" />
+          Overwrite fields that already have a value
+        </label>
+      </section>
+    </main>
+
+    <footer>
+      <span id="saved" class="saved">Saved automatically</span>
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
