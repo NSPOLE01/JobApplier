@@ -13,6 +13,10 @@
   // patterns like /^name$/ work); `exclude` is tested against all of them
   // joined, and vetoes the rule.
   const PERSON_EXCLUDE = [/referen|referr|emergency|supervisor|recruiter|manager's|previous\s*employer/i];
+  // "Company Email" asks for the employer's address, not yours.
+  const ORG_CONTACT_EXCLUDE = [
+    /(company|employer|organi[sz]ation|school|universit\w*|college)\s*(e-?mail|phone|tel|number|contact|fax)/i,
+  ];
   const FIELD_RULES = [
     { key: 'github', patterns: [/git\s*-?hub/i] },
     { key: 'linkedin', patterns: [/linked\s*-?in/i] },
@@ -31,13 +35,36 @@
         /^\s*url\s*$/i,
       ],
     },
-    { key: 'email', exclude: PERSON_EXCLUDE, patterns: [/e-?mail/i] },
-    { key: 'phone', exclude: PERSON_EXCLUDE, patterns: [/phone/i, /mobile/i, /\bcell\b/i, /telephone/i, /\btel\b/i] },
+    { key: 'email', exclude: [...PERSON_EXCLUDE, ...ORG_CONTACT_EXCLUDE], patterns: [/e-?mail/i] },
+    { key: 'phone', exclude: [...PERSON_EXCLUDE, ...ORG_CONTACT_EXCLUDE], patterns: [/phone/i, /mobile/i, /\bcell\b/i, /telephone/i, /\btel\b/i] },
     { key: 'firstName', exclude: PERSON_EXCLUDE, patterns: [/first\s*name/i, /given\s*name/i, /^\s*fname\s*$/i, /\bforename\b/i] },
     { key: 'lastName', exclude: PERSON_EXCLUDE, patterns: [/last\s*name/i, /\bsurname\b/i, /family\s*name/i, /^\s*lname\s*$/i] },
     { key: 'fullName', exclude: [...PERSON_EXCLUDE, /company\s*name/i, /school\s*name/i, /university/i, /file\s*name/i], patterns: [/full\s*name/i, /your\s*name/i, /^\s*name\s*$/i, /legal\s*name/i] },
-    { key: 'currentCompany', patterns: [/current\s*(company|employer)/i, /^\s*company\s*$/i, /\bemployer\b/i] },
-    { key: 'currentTitle', patterns: [/current\s*(title|role|position)/i, /job\s*title/i, /^\s*title\s*$/i, /occupation/i] },
+    {
+      key: 'currentCompany',
+      exclude: [/company\s*(web\s*site|url|e-?mail|phone|address|size)/i, /which\s*company/i],
+      patterns: [
+        /current\s*(company|employer)/i,
+        /most\s*recent\s*(company|employer)/i,
+        /company\s*name/i,
+        /employer\s*name/i,
+        /^\s*company\s*$/i,
+        /\bemployer\b/i,
+        /^\s*organi[sz]ation\s*$/i,
+      ],
+    },
+    {
+      key: 'currentTitle',
+      patterns: [
+        /current\s*(title|role|position)/i,
+        /most\s*recent\s*(title|role|position)/i,
+        /job\s*title/i,
+        /position\s*title/i,
+        /^\s*title\s*$/i,
+        /^\s*role\s*$/i,
+        /occupation/i,
+      ],
+    },
     {
       key: 'school',
       exclude: [/high\s*school/i, /(school|universit\w*|college)\s*(e-?mail|web\s*site|url|address|phone|link)/i],
@@ -57,6 +84,19 @@
     { key: 'zip', patterns: [/\bzip\b/i, /postal/i, /post\s*code/i] },
     { key: 'country', patterns: [/\bcountry\b/i] },
     { key: 'pronouns', patterns: [/pronoun/i] },
+    {
+      key: 'gender',
+      exclude: [/pronoun/i],
+      patterns: [/\bgender\b/i, /gender\s*identity/i, /^\s*sex\s*$/i],
+    },
+    {
+      key: 'hispanicLatino',
+      patterns: [/hispanic/i, /latin[oax]/i],
+    },
+    {
+      key: 'veteranStatus',
+      patterns: [/veteran/i, /military\s*service/i, /protected\s*veteran/i],
+    },
     { key: 'salary', patterns: [/salary/i, /compensation\s*(expectation|requirement)/i, /desired\s*pay/i] },
     { key: 'heardAbout', patterns: [/how\s*did\s*you\s*hear/i, /referral\s*source/i, /where\s*did\s*you\s*(hear|find)/i] },
   ];
@@ -65,6 +105,8 @@
   const FILL_ONCE = new Set([
     'fullName', 'firstName', 'lastName', 'email', 'phone',
     'school', 'degree', 'discipline',
+    'currentCompany', 'currentTitle',
+    'gender', 'hispanicLatino', 'veteranStatus',
   ]);
 
   // Input types safe to type into. Checkboxes, radios, files and passwords are skipped.
@@ -107,6 +149,15 @@
       // patterns with word boundaries still match attribute names.
       const spaced = text.replace(/[_\-.[\]]+/g, ' ').replace(/\s+/g, ' ').trim();
       if (spaced && spaced !== text) parts.push(spaced);
+      // "Company Name *", "Title (required)" -> bare label, so anchored
+      // patterns like /^title$/ still match a decorated label.
+      const bare = spaced
+        .replace(/\((?:[^)]*)\)/g, ' ')
+        .replace(/\b(required|optional)\b/gi, ' ')
+        .replace(/[*:•·,]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (bare && bare !== spaced && bare !== text) parts.push(bare);
     };
 
     if (el.id) {
@@ -185,20 +236,35 @@
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  // "Decline to self identify" is worded differently by every ATS.
+  const DECLINE = /decline|don'?t wish|do not wish|prefer not|choose not|rather not|not disclose|no\s*answer/i;
+
+  function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
   function fillSelect(el, value) {
     const target = value.trim().toLowerCase();
-    const options = Array.from(el.options || []);
-    const exact = options.find(
-      (o) => o.value.trim().toLowerCase() === target || o.text.trim().toLowerCase() === target
-    );
-    const partial =
-      exact ||
-      options.find((o) => {
-        const t = o.text.trim().toLowerCase();
-        return t && (t.includes(target) || target.includes(t));
+    const options = Array.from(el.options || []).filter((o) => o.text.trim() || o.value);
+    const norm = (s) => s.trim().toLowerCase();
+
+    let hit = options.find((o) => norm(o.value) === target || norm(o.text) === target);
+
+    // Whole-word containment either way, so "Male" never selects "Female"
+    // and a long veteran option still matches a shorter stored phrase.
+    if (!hit) {
+      const targetRe = new RegExp(`\\b${escapeRegExp(target)}\\b`, 'i');
+      hit = options.find((o) => {
+        const text = norm(o.text);
+        if (!text) return false;
+        return targetRe.test(text) || new RegExp(`\\b${escapeRegExp(text)}\\b`, 'i').test(target);
       });
-    if (!partial) return false;
-    el.value = partial.value;
+    }
+
+    if (!hit && DECLINE.test(target)) hit = options.find((o) => DECLINE.test(o.text));
+    if (!hit) return false;
+
+    el.value = hit.value;
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
     return true;

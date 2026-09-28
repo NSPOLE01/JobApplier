@@ -85,6 +85,18 @@ label {
   color: var(--muted);
 }
 
+label select {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--field-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
 label input[type="text"], label input[type="url"], label input[type="email"], label input[type="tel"] {
   display: block;
   width: 100%;

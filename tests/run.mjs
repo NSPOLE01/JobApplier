@@ -16,6 +16,7 @@ const PROFILE = {
   fullName: 'Nikhil Polepalli',
   email: 'me@example.com',
   phone: '555-111-2222',
+  pronouns: 'they/them',
   github: 'https://github.com/NSPOLE01',
   linkedin: 'https://linkedin.com/in/nikhil',
   portfolio: 'https://nikhil.dev',
@@ -26,13 +27,18 @@ const PROFILE = {
   zip: '94105',
   country: 'United States',
   heardAbout: 'LinkedIn',
+  currentCompany: 'Acme Corp',
+  currentTitle: 'Engineer',
+  gender: 'Male',
+  hispanicLatino: 'No',
+  veteranStatus: 'I am not a protected veteran',
   school: 'University of Texas at Austin',
   degree: "Bachelor's Degree",
   discipline: 'Computer Science',
   customFields: [{ pattern: 'authorized to work', value: 'Yes' }],
 };
 
-function run(html, options = {}) {
+function run(html, options = {}, profileOverride = {}) {
   const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`, {
     url: 'https://jobs.example.com/apply',
     runScripts: 'outside-only',
@@ -46,7 +52,7 @@ function run(html, options = {}) {
       : { width: 200, height: 30, top: 0, left: 0, right: 200, bottom: 30, x: 0, y: 0 };
   };
   window.eval(contentScript);
-  const result = window.__jobApplierFill(PROFILE, options);
+  const result = window.__jobApplierFill({ ...PROFILE, ...profileOverride }, options);
   return { window, result };
 }
 
@@ -163,6 +169,89 @@ function valueOf(window, selector) {
   </form>`);
   check('first education row filled', valueOf(window, '#s1'), 'University of Texas at Austin');
   check('second education row left blank', valueOf(window, '#s2'), '');
+}
+
+// --- work fields and decorated labels ----------------------------------------
+{
+  // One label per fixture: work keys fill once per page, so sharing a form
+  // would hide misses behind the dedupe.
+  const cases = [
+    ['Company name', 'Acme Corp'],
+    ['Company Name *', 'Acme Corp'],
+    ['Company', 'Acme Corp'],
+    ['Company *', 'Acme Corp'],
+    ['Employer Name', 'Acme Corp'],
+    ['Most Recent Employer', 'Acme Corp'],
+    ['Organization', 'Acme Corp'],
+    ['Name *', 'Nikhil Polepalli'],
+    ['Title (required)', 'Engineer'],
+    ['Position Title', 'Engineer'],
+    ['Role', 'Engineer'],
+    ['Company Website', ''],
+    ['Company Email', ''],
+    ['Company Size', ''],
+  ];
+
+  for (const [label, expected] of cases) {
+    const { window } = run(`<form><label for="f">${label}</label><input id="f" type="text"></form>`);
+    check(`label "${label}"`, valueOf(window, '#f'), expected);
+  }
+}
+
+{
+  // Two employer rows: the second is a different job.
+  const { window } = run(`<form>
+    <div><label for="e1">Company Name</label><input id="e1" type="text"></div>
+    <div><label for="e2">Company Name</label><input id="e2" type="text"></div>
+  </form>`);
+  check('first employer row filled', valueOf(window, '#e1'), 'Acme Corp');
+  check('second employer row left blank', valueOf(window, '#e2'), '');
+}
+
+// --- voluntary self-identification -------------------------------------------
+{
+  const { window } = run(`<form>
+    <label for="g">Gender</label>
+    <select id="g" name="job_application[gender]">
+      <option value="">Select...</option><option value="1">Male</option><option value="2">Female</option>
+      <option value="3">Decline To Self Identify</option>
+    </select>
+    <label for="h">Are you Hispanic/Latino?</label>
+    <select id="h" name="job_application[hispanic_ethnicity]">
+      <option value="">Select...</option><option value="1">Yes</option><option value="2">No</option>
+    </select>
+    <label for="v">Veteran Status</label>
+    <select id="v">
+      <option value="">Select...</option>
+      <option value="1">I identify as one or more of the classifications of a protected veteran</option>
+      <option value="2">No, I am not a protected veteran</option>
+      <option value="3">I don't wish to answer</option>
+    </select>
+    <label for="r">Race / Ethnicity</label>
+    <select id="r"><option value="">Select...</option><option value="1">Asian</option><option value="2">White</option></select>
+    <div><label for="p">Gender pronouns</label><input id="p" type="text"></div>
+  </form>`);
+
+  check('gender select', valueOf(window, '#g'), '1');
+  check('hispanic/latino select', valueOf(window, '#h'), '2');
+  check('veteran status matches longer option wording', valueOf(window, '#v'), '2');
+  check('race question not answered from hispanic field', valueOf(window, '#r'), '');
+  check('"Gender pronouns" stays pronouns', valueOf(window, '#p'), 'they/them');
+}
+
+{
+  // Substring matching must not turn "Male" into "Female".
+  const { window } = run(`<form><label for="g">Gender</label>
+    <select id="g"><option value="">Select...</option><option value="f">Female</option></select></form>`);
+  check('no false substring match on gender', valueOf(window, '#g'), '');
+}
+
+{
+  // Decline wording differs per ATS; match any decline-shaped option.
+  const { window } = run(`<form><label for="v">Veteran Status</label>
+    <select id="v"><option value="">Select...</option><option value="9">I don't wish to answer</option></select></form>`,
+    {}, { veteranStatus: 'Decline to self identify' });
+  check('decline synonym matches', valueOf(window, '#v'), '9');
 }
 
 // --- overwrite mode ----------------------------------------------------------

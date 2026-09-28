@@ -39,6 +39,17 @@ Two details that matter in practice:
 Values are written through the native `value` setter and followed by `input` and `change` events,
 so React and Vue controlled forms register the change rather than reverting on submit.
 
+## Voluntary self-identification
+
+Gender, Hispanic or Latino, and veteran status are dropdowns in the popup, left blank by default.
+Blank means the question is skipped, so these are filled only if you choose to set them.
+
+Because every applicant tracking system words these options differently, select matching tries an
+exact option match, then whole-word matching in either direction, then a decline-shaped fallback.
+That is how a stored "I am not a protected veteran" finds an option reading "No, I am not a
+protected veteran", and why "Male" never selects "Female". Race and ethnicity is a separate question
+and is never answered from the Hispanic or Latino field.
+
 ## Custom fields
 
 The popup's **Custom fields** section maps any keyword to any value. The keyword is matched against
