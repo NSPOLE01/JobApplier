@@ -41,14 +41,16 @@ so React and Vue controlled forms register the change rather than reverting on s
 
 ## Voluntary self-identification
 
-Gender, Hispanic or Latino, and veteran status are dropdowns in the popup, left blank by default.
+Gender, Hispanic or Latino, race, and veteran status are dropdowns in the popup, left blank by
+default.
 Blank means the question is skipped, so these are filled only if you choose to set them.
 
 Because every applicant tracking system words these options differently, select matching tries an
 exact option match, then whole-word matching in either direction, then a decline-shaped fallback.
 That is how a stored "I am not a protected veteran" finds an option reading "No, I am not a
-protected veteran", and why "Male" never selects "Female". Race and ethnicity is a separate question
-and is never answered from the Hispanic or Latino field.
+protected veteran", how "Asian" finds "Asian (Not Hispanic or Latino)", and why "Male" never selects
+"Female". Race and Hispanic or Latino stay separate questions, each answered only from its own
+field.
 
 ## Custom fields
 
@@ -85,5 +87,7 @@ npm test
   never leaves Google's sync. The extension makes no network requests.
 - Resume file uploads are not handled. Chrome extensions cannot set a file input's value.
 - Custom dropdowns built from `div` elements rather than `select` are not filled.
+- Race questions asked as a checkbox group rather than a dropdown are not filled, since the answer
+  can be several boxes.
 - Education is filled for one entry only. If a form has several school rows, the first is filled and
   the rest are left for you, since they are different schools.

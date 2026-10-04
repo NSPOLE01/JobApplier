@@ -19,8 +19,9 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 
   try {
-    const { fields } = await fillTab(tab, profile, { overwrite: Boolean(settings.overwrite) });
-    await flashBadge(tab.id, fields.length ? String(fields.length) : '0', fields.length ? '#16a34a' : '#d97706');
+    const { fields, reverted } = await fillTab(tab, profile, { overwrite: Boolean(settings.overwrite) });
+    const clean = fields.length > 0 && reverted.length === 0;
+    await flashBadge(tab.id, String(fields.length), clean ? '#16a34a' : '#d97706');
   } catch (_) {
     await flashBadge(tab.id, '×', '#dc2626');
   }

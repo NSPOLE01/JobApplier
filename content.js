@@ -94,6 +94,10 @@
       patterns: [/hispanic/i, /latin[oax]/i],
     },
     {
+      key: 'race',
+      patterns: [/\brace\b/i, /\bracial\b/i, /ethnic(ity|\s*background|\s*group|\s*origin)/i],
+    },
+    {
       key: 'veteranStatus',
       patterns: [/veteran/i, /military\s*service/i, /protected\s*veteran/i],
     },
@@ -106,7 +110,7 @@
     'fullName', 'firstName', 'lastName', 'email', 'phone',
     'school', 'degree', 'discipline',
     'currentCompany', 'currentTitle',
-    'gender', 'hispanicLatino', 'veteranStatus',
+    'gender', 'hispanicLatino', 'race', 'veteranStatus',
   ]);
 
   // Input types safe to type into. Checkboxes, radios, files and passwords are skipped.
@@ -224,16 +228,76 @@
     return null;
   }
 
-  /** Set value in a way React / Vue controlled inputs actually notice. */
-  function setValue(el, value) {
+  function fire(el, event) {
+    el.dispatchEvent(event);
+  }
+
+  function inputEvent(value) {
+    if (typeof InputEvent === 'function') {
+      return new InputEvent('input', {
+        bubbles: true,
+        composed: true,
+        inputType: 'insertText',
+        data: value,
+      });
+    }
+    return new Event('input', { bubbles: true });
+  }
+
+  function focusEvent(type) {
+    const Ctor = typeof FocusEvent === 'function' ? FocusEvent : Event;
+    return new Ctor(type, { bubbles: type === 'focusin' || type === 'focusout' });
+  }
+
+  function setValueNative(el, value) {
     const proto =
       el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    // React remembers the last value it saw on the node. Clearing that first
+    // is what makes it treat our write as a real change instead of a no-op.
+    if (el._valueTracker && typeof el._valueTracker.setValue === 'function') {
+      el._valueTracker.setValue('');
+    }
     if (setter) setter.call(el, value);
     else el.value = value;
+  }
 
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
+  /**
+   * Write a value the way a person would, so framework state and validators
+   * both see it: focus, type, input, change, blur. Pages that validate on
+   * blur otherwise keep reporting a filled field as missing.
+   */
+  function typeInto(el, value) {
+    try {
+      el.focus({ preventScroll: true });
+    } catch (_) {
+      /* detached or non-focusable */
+    }
+    fire(el, focusEvent('focusin'));
+
+    // execCommand produces a trusted input event, which stubborn editors
+    // believe. Where it is unavailable or blocked, fall back to the native
+    // setter plus a synthetic input event.
+    let typed = false;
+    try {
+      if (typeof el.select === 'function') el.select();
+      typed = document.execCommand('insertText', false, value) && el.value === value;
+    } catch (_) {
+      typed = false;
+    }
+
+    if (!typed) {
+      setValueNative(el, value);
+      fire(el, inputEvent(value));
+    }
+
+    fire(el, new Event('change', { bubbles: true }));
+    fire(el, focusEvent('focusout'));
+    try {
+      el.blur();
+    } catch (_) {
+      /* ignore */
+    }
   }
 
   // "Decline to self identify" is worded differently by every ATS.
@@ -264,9 +328,23 @@
     if (!hit && DECLINE.test(target)) hit = options.find((o) => DECLINE.test(o.text));
     if (!hit) return false;
 
+    try {
+      el.focus({ preventScroll: true });
+    } catch (_) {
+      /* ignore */
+    }
+    if (el._valueTracker && typeof el._valueTracker.setValue === 'function') {
+      el._valueTracker.setValue('');
+    }
     el.value = hit.value;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
+    fire(el, new Event('input', { bubbles: true }));
+    fire(el, new Event('change', { bubbles: true }));
+    fire(el, focusEvent('focusout'));
+    try {
+      el.blur();
+    } catch (_) {
+      /* ignore */
+    }
     return true;
   }
 
@@ -279,13 +357,36 @@
     }, 1600);
   }
 
-  window.__jobApplierFill = function fill(profile, options) {
+  function readBack(el) {
+    if (el.isContentEditable) return el.textContent;
+    return el.value;
+  }
+
+  /**
+   * Re-read what we wrote after the page has had a chance to react. A
+   * controlled component that never registered the change reverts the node,
+   * which is the difference between "filled" and "the form still wants it".
+   */
+  function verify(entries) {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const stuck = [];
+        const reverted = [];
+        entries.forEach((entry) => {
+          (readBack(entry.el) === entry.expected ? stuck : reverted).push(entry.label);
+        });
+        resolve({ stuck, reverted });
+      }, 350);
+    });
+  }
+
+  window.__jobApplierFill = async function fill(profile, options) {
     const opts = options || {};
     const customFields = Array.isArray(profile.customFields) ? profile.customFields : [];
     const candidates = Array.from(
       document.querySelectorAll('input, textarea, select, [contenteditable="true"]')
     );
-    const filled = [];
+    const entries = [];
     const seenKeys = new Set();
 
     for (const el of candidates) {
@@ -312,18 +413,24 @@
         ok = fillSelect(el, String(value));
       } else if (el.isContentEditable) {
         el.textContent = String(value);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
+        fire(el, inputEvent(String(value)));
+        fire(el, new Event('change', { bubbles: true }));
       } else {
-        setValue(el, String(value));
+        typeInto(el, String(value));
       }
 
       flash(el, ok);
-      if (ok) {
-        seenKeys.add(dedupeKey);
-        filled.push(match.key === '__custom__' ? `custom (${value})` : match.key);
-      }
+      if (!ok) continue;
+
+      seenKeys.add(dedupeKey);
+      entries.push({
+        el,
+        label: match.key === '__custom__' ? `custom (${value})` : match.key,
+        expected: readBack(el),
+      });
     }
 
-    return { filled: filled.length, fields: filled };
+    const { stuck, reverted } = await verify(entries);
+    return { filled: stuck.length, fields: stuck, reverted };
   };
 })();

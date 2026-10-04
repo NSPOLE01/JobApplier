@@ -105,13 +105,23 @@ async function handleFill() {
   setStatus('Scanning page...');
 
   try {
-    const { fields } = await fillTab(tab, profile, { overwrite: overwriteEl.checked });
-    if (fields.length === 0) {
+    const { fields, reverted } = await fillTab(tab, profile, { overwrite: overwriteEl.checked });
+
+    if (fields.length === 0 && reverted.length === 0) {
       setStatus('No matching fields found on this page.', 'warn');
       return;
     }
+
     const unique = [...new Set(fields.map(humanize))];
-    setStatus(`Filled ${fields.length} field${fields.length === 1 ? '' : 's'}: ${unique.join(', ')}`, 'ok');
+    const summary = `Filled ${fields.length} field${fields.length === 1 ? '' : 's'}: ${unique.join(', ')}`;
+
+    if (reverted.length) {
+      const lost = [...new Set(reverted.map(humanize))];
+      setStatus(`${fields.length ? `${summary}. ` : ''}The page cleared ${lost.join(', ')} — type ${reverted.length === 1 ? 'it' : 'those'} manually.`, 'warn');
+      return;
+    }
+
+    setStatus(summary, 'ok');
   } catch (error) {
     setStatus(error.message, 'err');
   }
