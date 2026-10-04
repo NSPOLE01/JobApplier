@@ -268,12 +268,15 @@
    * blur otherwise keep reporting a filled field as missing.
    */
   function typeInto(el, value) {
+    // focus() fires trusted focus/focusin itself; only synthesize when the
+    // element refuses focus, otherwise the page sees each event twice.
     try {
       el.focus({ preventScroll: true });
     } catch (_) {
       /* detached or non-focusable */
     }
-    fire(el, focusEvent('focusin'));
+    const focused = document.activeElement === el;
+    if (!focused) fire(el, focusEvent('focusin'));
 
     // execCommand produces a trusted input event, which stubborn editors
     // believe. Where it is unavailable or blocked, fall back to the native
@@ -292,11 +295,15 @@
     }
 
     fire(el, new Event('change', { bubbles: true }));
-    fire(el, focusEvent('focusout'));
-    try {
-      el.blur();
-    } catch (_) {
-      /* ignore */
+
+    if (focused) {
+      try {
+        el.blur();
+      } catch (_) {
+        /* ignore */
+      }
+    } else {
+      fire(el, focusEvent('focusout'));
     }
   }
 
@@ -333,17 +340,22 @@
     } catch (_) {
       /* ignore */
     }
+    const focused = document.activeElement === el;
     if (el._valueTracker && typeof el._valueTracker.setValue === 'function') {
       el._valueTracker.setValue('');
     }
     el.value = hit.value;
     fire(el, new Event('input', { bubbles: true }));
     fire(el, new Event('change', { bubbles: true }));
-    fire(el, focusEvent('focusout'));
-    try {
-      el.blur();
-    } catch (_) {
-      /* ignore */
+
+    if (focused) {
+      try {
+        el.blur();
+      } catch (_) {
+        /* ignore */
+      }
+    } else {
+      fire(el, focusEvent('focusout'));
     }
     return true;
   }

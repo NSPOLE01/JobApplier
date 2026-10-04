@@ -295,12 +295,6 @@ function valueOf(window, selector) {
 }
 
 {
-  // Frameworks validate on blur, so the sequence has to look like a person.
-  const dom = await run(`<form><label for="gh">GitHub</label><input id="gh" type="url"></form>`);
-  void dom;
-}
-
-{
   const { JSDOM } = await import('jsdom');
   const dom = new JSDOM(`<!doctype html><body><form><label for="gh">GitHub</label><input id="gh" type="url"></form>`,
     { url: 'https://jobs.example.com/apply', runScripts: 'outside-only' });

@@ -60,6 +60,23 @@ Custom fields take priority over the built-in rules, so they also let you overri
 
 Example: keyword `authorized to work` with value `Yes`.
 
+## "The field is filled but the form says it is missing"
+
+Modern application forms do not read the text box when you submit. They read their own JavaScript
+state, which is updated by the events a real keystroke produces. Writing `element.value` alone
+changes what you see and nothing else, so validation still considers the field empty.
+
+The extension writes values the way a person does: it focuses the field, types through
+`execCommand('insertText')` so the page receives a trusted input event, falls back to the native
+value setter with a synthetic `input` event when that is blocked, then fires `change` and blurs the
+field, since many forms validate on blur. For React specifically it clears the node's internal
+`_valueTracker` first, which is what makes React treat the write as a real change rather than a
+no-op.
+
+After filling, it waits a moment and re-reads every field. Any field the page cleared again is
+reported in the popup as cleared rather than counted as filled, so a silent rejection shows up
+immediately instead of at submit time.
+
 ## Tests
 
 Field matching is covered by a jsdom suite with fixtures shaped like Greenhouse, Lever, Ashby and
