@@ -39,11 +39,32 @@ Two details that matter in practice:
 Values are written through the native `value` setter and followed by `input` and `change` events,
 so React and Vue controlled forms register the change rather than reverting on submit.
 
+## Phone country code
+
+Application forms often put a "Country" dropdown next to the phone box. That one wants the dialing
+code, not the country name, so it is detected by its options rather than its label: a select whose
+options read like "United States +1", "US (+1)" or plain "+1" is treated as a phone country picker
+even when it is labeled "Country" or carries no label at all. Address country fields are unaffected
+and still receive the country name.
+
+The code comes from the **Phone country code** field in the popup if you set one. Otherwise it is
+derived from your phone number when that starts with a `+`, and failing that from your country. When
+several options share a code, as the US and Canada both do with +1, the one naming your country is
+chosen.
+
 ## Voluntary self-identification
 
 Gender, Hispanic or Latino, race, and veteran status are dropdowns in the popup, left blank by
 default.
 Blank means the question is skipped, so these are filled only if you choose to set them.
+
+These questions are not always dropdowns. When they are radio buttons, an ARIA radiogroup, or a row
+of clickable buttons, the extension finds the group, reads the question from its legend, heading or
+surrounding text, and clicks the option matching your answer. Only these four questions and your own
+custom fields are ever answered by clicking, so an unrelated question like "Are you willing to
+relocate?" is left alone. Buttons that submit are never clicked: a plain `<button>` defaults to
+submit, so only explicit `type="button"` options, `role="radio"`, and `role="button"` elements are
+eligible.
 
 Because every applicant tracking system words these options differently, select matching tries an
 exact option match, then whole-word matching in either direction, then a decline-shaped fallback.
@@ -104,7 +125,7 @@ npm test
   never leaves Google's sync. The extension makes no network requests.
 - Resume file uploads are not handled. Chrome extensions cannot set a file input's value.
 - Custom dropdowns built from `div` elements rather than `select` are not filled.
-- Race questions asked as a checkbox group rather than a dropdown are not filled, since the answer
-  can be several boxes.
+- Race questions asked as a checkbox group rather than a dropdown or radio group are not filled,
+  since the answer can be several boxes.
 - Education is filled for one entry only. If a form has several school rows, the first is filled and
   the rest are left for you, since they are different schools.

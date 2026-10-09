@@ -36,7 +36,11 @@
       ],
     },
     { key: 'email', exclude: [...PERSON_EXCLUDE, ...ORG_CONTACT_EXCLUDE], patterns: [/e-?mail/i] },
-    { key: 'phone', exclude: [...PERSON_EXCLUDE, ...ORG_CONTACT_EXCLUDE], patterns: [/phone/i, /mobile/i, /\bcell\b/i, /telephone/i, /\btel\b/i] },
+    {
+      key: 'phone',
+      exclude: [...PERSON_EXCLUDE, ...ORG_CONTACT_EXCLUDE, /(country|dial(ing)?|calling)\s*code/i],
+      patterns: [/phone/i, /mobile/i, /\bcell\b/i, /telephone/i, /\btel\b/i],
+    },
     { key: 'firstName', exclude: PERSON_EXCLUDE, patterns: [/first\s*name/i, /given\s*name/i, /^\s*fname\s*$/i, /\bforename\b/i] },
     { key: 'lastName', exclude: PERSON_EXCLUDE, patterns: [/last\s*name/i, /\bsurname\b/i, /family\s*name/i, /^\s*lname\s*$/i] },
     { key: 'fullName', exclude: [...PERSON_EXCLUDE, /company\s*name/i, /school\s*name/i, /university/i, /file\s*name/i], patterns: [/full\s*name/i, /your\s*name/i, /^\s*name\s*$/i, /legal\s*name/i] },
@@ -82,6 +86,10 @@
     { key: 'city', patterns: [/\bcity\b/i, /\btown\b/i, /locality/i] },
     { key: 'state', patterns: [/\bstate\b/i, /province/i, /\bregion\b/i] },
     { key: 'zip', patterns: [/\bzip\b/i, /postal/i, /post\s*code/i] },
+    {
+      key: 'phoneCountry',
+      patterns: [/(country|dial(ing)?|calling)\s*code/i, /phone\s*country/i, /country\s*dial/i],
+    },
     { key: 'country', patterns: [/\bcountry\b/i] },
     { key: 'pronouns', patterns: [/pronoun/i] },
     {
@@ -135,10 +143,10 @@
     return node.querySelectorAll(CONTROL_SELECTOR).length;
   }
 
-  function textOf(node) {
+  function textOf(node, max = 120) {
     if (!node) return '';
     const t = (node.innerText || node.textContent || '').trim();
-    return t.length > 120 ? '' : t;
+    return t.length > max ? '' : t;
   }
 
   /** Collect every scrap of text that describes what a field wants. */
@@ -164,12 +172,15 @@
       if (bare && bare !== spaced && bare !== text) parts.push(bare);
     };
 
-    if (el.id) {
-      try {
-        push(textOf(document.querySelector(`label[for="${CSS.escape(el.id)}"]`)));
-      } catch (_) {
-        /* malformed id */
-      }
+    // el.labels covers both <label for> and a wrapping label, with no need to
+    // build a selector out of an id that may contain anything.
+    const labels = el.labels ? Array.from(el.labels) : [];
+    labels.forEach((label) => push(textOf(label)));
+    if (labels.length === 0 && el.id) {
+      const byFor = Array.from(document.querySelectorAll('label[for]')).find(
+        (label) => label.htmlFor === el.id
+      );
+      push(textOf(byFor));
     }
     push(textOf(el.closest('label')));
 
@@ -307,34 +318,8 @@
     }
   }
 
-  // "Decline to self identify" is worded differently by every ATS.
-  const DECLINE = /decline|don'?t wish|do not wish|prefer not|choose not|rather not|not disclose|no\s*answer/i;
-
-  function escapeRegExp(text) {
-    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  function fillSelect(el, value) {
-    const target = value.trim().toLowerCase();
-    const options = Array.from(el.options || []).filter((o) => o.text.trim() || o.value);
-    const norm = (s) => s.trim().toLowerCase();
-
-    let hit = options.find((o) => norm(o.value) === target || norm(o.text) === target);
-
-    // Whole-word containment either way, so "Male" never selects "Female"
-    // and a long veteran option still matches a shorter stored phrase.
-    if (!hit) {
-      const targetRe = new RegExp(`\\b${escapeRegExp(target)}\\b`, 'i');
-      hit = options.find((o) => {
-        const text = norm(o.text);
-        if (!text) return false;
-        return targetRe.test(text) || new RegExp(`\\b${escapeRegExp(text)}\\b`, 'i').test(target);
-      });
-    }
-
-    if (!hit && DECLINE.test(target)) hit = options.find((o) => DECLINE.test(o.text));
-    if (!hit) return false;
-
+  function commitSelect(el, option) {
+    if (!option) return false;
     try {
       el.focus({ preventScroll: true });
     } catch (_) {
@@ -344,7 +329,7 @@
     if (el._valueTracker && typeof el._valueTracker.setValue === 'function') {
       el._valueTracker.setValue('');
     }
-    el.value = hit.value;
+    el.value = option.value;
     fire(el, new Event('input', { bubbles: true }));
     fire(el, new Event('change', { bubbles: true }));
 
@@ -360,6 +345,132 @@
     return true;
   }
 
+  // Phone country pickers list dialing codes -- "United States +1", "US (+1)",
+  // plain "+1" -- and are labeled "Country" as often as not. The right answer
+  // there is +1, never "United States", so they are detected by their options.
+  const COUNTRY_DIAL = {
+    'united states': ['1', 'us'],
+    'united states of america': ['1', 'us'],
+    usa: ['1', 'us'],
+    us: ['1', 'us'],
+    canada: ['1', 'ca'],
+    'united kingdom': ['44', 'gb'],
+    uk: ['44', 'gb'],
+    'great britain': ['44', 'gb'],
+    ireland: ['353', 'ie'],
+    india: ['91', 'in'],
+    australia: ['61', 'au'],
+    'new zealand': ['64', 'nz'],
+    germany: ['49', 'de'],
+    france: ['33', 'fr'],
+    spain: ['34', 'es'],
+    italy: ['39', 'it'],
+    netherlands: ['31', 'nl'],
+    sweden: ['46', 'se'],
+    switzerland: ['41', 'ch'],
+    poland: ['48', 'pl'],
+    mexico: ['52', 'mx'],
+    brazil: ['55', 'br'],
+    japan: ['81', 'jp'],
+    china: ['86', 'cn'],
+    singapore: ['65', 'sg'],
+    israel: ['972', 'il'],
+    'south africa': ['27', 'za'],
+  };
+
+  const KNOWN_DIALS = new Set(Object.values(COUNTRY_DIAL).map(([dial]) => dial));
+
+  function lookupCountry(name) {
+    if (!name) return null;
+    const key = String(name).trim().toLowerCase().replace(/[.]/g, '');
+    return COUNTRY_DIAL[key] || null;
+  }
+
+  function dialCodeOf(option) {
+    const fromText = String(option.text).match(/\+\s*(\d{1,4})/);
+    if (fromText) return fromText[1];
+    const fromValue = String(option.value).match(/^\+?(\d{1,4})$/);
+    return fromValue ? fromValue[1] : null;
+  }
+
+  function isDialCodeSelect(el) {
+    const options = Array.from(el.options || []);
+    if (options.length < 2) return false;
+    const coded = options.filter((o) => /\+\s*\d{1,4}/.test(o.text));
+    return coded.length >= 2 && coded.length >= options.length / 2;
+  }
+
+  /** Digits only: the explicit setting, else the phone's prefix, else the country. */
+  function dialCodeFor(profile) {
+    const explicit = String(profile.phoneCountryCode || '').replace(/\D/g, '');
+    if (explicit) return explicit;
+
+    const phone = String(profile.phone || '').trim();
+    if (phone.startsWith('+')) {
+      const digits = phone.slice(1).replace(/\D/g, '');
+      for (let len = 3; len >= 1; len -= 1) {
+        if (KNOWN_DIALS.has(digits.slice(0, len))) return digits.slice(0, len);
+      }
+    }
+
+    const country = lookupCountry(profile.country);
+    return country ? country[0] : null;
+  }
+
+  function fillDialSelect(el, code, countryName) {
+    const matches = Array.from(el.options || []).filter((o) => dialCodeOf(o) === code);
+    if (matches.length === 0) return false;
+
+    // +1 is both the US and Canada, so prefer the option naming your country.
+    const country = lookupCountry(countryName);
+    const name = String(countryName || '').trim().toLowerCase();
+    const preferred =
+      (name && matches.find((o) => o.text.toLowerCase().includes(name))) ||
+      (country && matches.find((o) => String(o.value).toLowerCase() === country[1])) ||
+      matches[0];
+
+    return commitSelect(el, preferred);
+  }
+
+  // "Decline to self identify" is worded differently by every ATS.
+  const DECLINE = /decline|don'?t wish|do not wish|prefer not|choose not|rather not|not disclose|no\s*answer/i;
+
+  function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /**
+   * The shared matching ladder for anything with a fixed set of answers:
+   * exact, then whole-word containment either way, then a decline-shaped
+   * fallback. Whole-word is what stops "Male" selecting "Female".
+   */
+  function pickOption(items, value) {
+    const target = String(value).trim().toLowerCase();
+    const norm = (s) => String(s || '').trim().toLowerCase();
+
+    let hit = items.find((item) => norm(item.value) === target || norm(item.text) === target);
+
+    if (!hit) {
+      const targetRe = new RegExp(`\\b${escapeRegExp(target)}\\b`, 'i');
+      hit = items.find((item) => {
+        const text = norm(item.text);
+        if (!text) return false;
+        return targetRe.test(text) || new RegExp(`\\b${escapeRegExp(text)}\\b`, 'i').test(target);
+      });
+    }
+
+    if (!hit && DECLINE.test(target)) hit = items.find((item) => DECLINE.test(item.text));
+    return hit || null;
+  }
+
+  function fillSelect(el, value) {
+    const items = Array.from(el.options || [])
+      .filter((o) => o.text.trim() || o.value)
+      .map((o) => ({ ref: o, text: o.text, value: o.value }));
+    const hit = pickOption(items, value);
+    return hit ? commitSelect(el, hit.ref) : false;
+  }
+
   function flash(el, ok) {
     const previous = el.style.outline;
     el.style.outline = ok ? '2px solid #22c55e' : '2px solid #f59e0b';
@@ -367,6 +478,168 @@
     setTimeout(() => {
       el.style.outline = previous;
     }, 1600);
+  }
+
+  // --- choice questions ------------------------------------------------------
+  // Gender, race and veteran status are often radio buttons or a row of
+  // clickable buttons rather than a dropdown. Only these keys are answered by
+  // clicking, plus custom fields, where you supplied the exact wording.
+  const CHOICE_KEYS = new Set(['gender', 'hispanicLatino', 'race', 'veteranStatus']);
+
+  // No bare <button>: its type defaults to submit, and a stray click there
+  // would send a half-finished application.
+  const CHOICE_OPTION_SELECTOR =
+    'input[type="radio"], [role="radio"], button[type="button"], [role="button"], [aria-pressed]';
+
+  function isChoiceOption(el) {
+    if (!el.matches || !el.matches(CHOICE_OPTION_SELECTOR)) return false;
+    if (el.type === 'submit' || el.type === 'reset') return false;
+    return !el.disabled;
+  }
+
+  function choiceOptions(root) {
+    return Array.from(root.querySelectorAll(CHOICE_OPTION_SELECTOR)).filter(isChoiceOption);
+  }
+
+  /** The element that holds a whole question's options. */
+  function optionContainer(el) {
+    const named = el.closest('[role="radiogroup"], [role="group"], fieldset');
+    if (named) return named;
+    let node = el.parentElement;
+    for (let depth = 0; node && depth < 3; depth += 1, node = node.parentElement) {
+      if (choiceOptions(node).length >= 2) return node;
+    }
+    return el.parentElement;
+  }
+
+  function optionText(el) {
+    if (el.labels && el.labels.length) {
+      const fromLabels = Array.from(el.labels)
+        .map((label) => textOf(label, 200))
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      if (fromLabels) return fromLabels;
+    }
+    const own = textOf(el, 200);
+    if (own) return own;
+    return el.getAttribute('aria-label') || el.value || '';
+  }
+
+  /** What the question is asking, gathered from around the option group. */
+  function groupSignals(container, sample) {
+    const parts = [];
+    const push = (v) => {
+      if (!v) return;
+      const text = String(v).trim();
+      if (!text) return;
+      parts.push(text);
+      const spaced = text.replace(/[_\-.[\]]+/g, ' ').replace(/\s+/g, ' ').trim();
+      if (spaced && spaced !== text) parts.push(spaced);
+    };
+
+    push(textOf(container.querySelector('legend'), 400));
+    push(container.getAttribute('aria-label'));
+    const labelledBy = container.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      labelledBy.split(/\s+/).forEach((id) => push(textOf(document.getElementById(id), 400)));
+    }
+    push(sample.getAttribute('name'));
+    push(container.getAttribute('data-automation-id'));
+
+    // Text inside the group that is not one of the options, such as a heading.
+    Array.from(container.children).forEach((child) => {
+      if (isChoiceOption(child) || choiceOptions(child).length) return;
+      push(textOf(child, 400));
+    });
+
+    // Text just before the group, which is where the question usually sits.
+    let node = container;
+    for (let depth = 0; node && depth < 3; depth += 1, node = node.parentElement) {
+      let prev = node.previousElementSibling;
+      for (let back = 0; prev && back < 2; back += 1, prev = prev.previousElementSibling) {
+        if (choiceOptions(prev).length) continue;
+        push(textOf(prev, 400));
+      }
+    }
+
+    return parts;
+  }
+
+  function choiceState(el) {
+    if (el.type === 'radio') return el.checked ? 'on' : 'off';
+    const checked = el.getAttribute('aria-checked');
+    if (checked !== null) return checked;
+    const pressed = el.getAttribute('aria-pressed');
+    if (pressed !== null) return pressed;
+    return 'unknown';
+  }
+
+  function isChosen(el) {
+    const state = choiceState(el);
+    return state === 'on' || state === 'true';
+  }
+
+  function clickOption(el) {
+    try {
+      el.focus({ preventScroll: true });
+    } catch (_) {
+      /* ignore */
+    }
+    if (el.type !== 'radio') {
+      // Some option widgets act on mousedown rather than click.
+      ['mousedown', 'mouseup'].forEach((type) => {
+        if (typeof MouseEvent === 'function') {
+          fire(el, new MouseEvent(type, { bubbles: true, cancelable: true, composed: true }));
+        }
+      });
+    }
+    if (typeof el.click === 'function') el.click();
+    else if (typeof MouseEvent === 'function') {
+      fire(el, new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+    }
+  }
+
+  /** Answer radio and button questions. Mutates seenKeys and entries. */
+  function fillChoiceGroups(ctx) {
+    const { profile, customFields, opts, seenKeys, entries } = ctx;
+    const groups = new Map();
+
+    choiceOptions(document).forEach((el) => {
+      if (!isVisible(el)) return;
+      const container = optionContainer(el);
+      if (!container) return;
+      if (!groups.has(container)) groups.set(container, []);
+      groups.get(container).push(el);
+    });
+
+    groups.forEach((options, container) => {
+      if (options.length < 2) return;
+
+      const match = matchKey(groupSignals(container, options[0]), customFields);
+      if (!match) return;
+      if (match.key !== '__custom__' && !CHOICE_KEYS.has(match.key)) return;
+
+      const value = match.key === '__custom__' ? match.value : profile[match.key];
+      if (!value || !String(value).trim()) return;
+
+      const dedupeKey = match.key === '__custom__' ? `custom:${value}` : match.key;
+      if (seenKeys.has(dedupeKey) && FILL_ONCE.has(match.key)) return;
+      if (!opts.overwrite && options.some(isChosen)) return;
+
+      const items = options.map((el) => ({ ref: el, text: optionText(el), value: el.value || '' }));
+      const hit = pickOption(items, String(value));
+      if (!hit) return;
+
+      clickOption(hit.ref);
+      flash(hit.ref, true);
+      seenKeys.add(dedupeKey);
+      entries.push({
+        label: match.key === '__custom__' ? `custom (${value})` : match.key,
+        read: () => choiceState(hit.ref),
+        expected: choiceState(hit.ref),
+      });
+    });
   }
 
   function readBack(el) {
@@ -385,7 +658,7 @@
         const stuck = [];
         const reverted = [];
         entries.forEach((entry) => {
-          (readBack(entry.el) === entry.expected ? stuck : reverted).push(entry.label);
+          (entry.read() === entry.expected ? stuck : reverted).push(entry.label);
         });
         resolve({ stuck, reverted });
       }, 350);
@@ -407,12 +680,20 @@
       if (!opts.overwrite && el.value && el.value.trim()) continue;
 
       const signals = signalsFor(el);
-      if (signals.length === 0) continue;
-
-      const match = matchKey(signals, customFields);
+      // A select full of dialing codes is a phone country picker whatever its
+      // label claims, and some carry no label at all.
+      const dial = el instanceof HTMLSelectElement && isDialCodeSelect(el);
+      const match = dial
+        ? { key: 'phoneCountry' }
+        : signals.length
+          ? matchKey(signals, customFields)
+          : null;
       if (!match) continue;
 
-      const value = match.key === '__custom__' ? match.value : profile[match.key];
+      let value;
+      if (match.key === '__custom__') value = match.value;
+      else if (match.key === 'phoneCountry') value = dialCodeFor(profile);
+      else value = profile[match.key];
       if (!value || !String(value).trim()) continue;
 
       // Some keys must not repeat down the page: a second education row is a
@@ -422,13 +703,16 @@
 
       let ok = true;
       if (el instanceof HTMLSelectElement) {
-        ok = fillSelect(el, String(value));
+        ok = dial
+          ? fillDialSelect(el, String(value), profile.country)
+          : fillSelect(el, String(value));
       } else if (el.isContentEditable) {
         el.textContent = String(value);
         fire(el, inputEvent(String(value)));
         fire(el, new Event('change', { bubbles: true }));
       } else {
-        typeInto(el, String(value));
+        // A country-code text box wants "+1", not "1".
+        typeInto(el, match.key === 'phoneCountry' ? `+${value}` : String(value));
       }
 
       flash(el, ok);
@@ -436,11 +720,13 @@
 
       seenKeys.add(dedupeKey);
       entries.push({
-        el,
         label: match.key === '__custom__' ? `custom (${value})` : match.key,
+        read: () => readBack(el),
         expected: readBack(el),
       });
     }
+
+    fillChoiceGroups({ profile, customFields, opts, seenKeys, entries });
 
     const { stuck, reverted } = await verify(entries);
     return { filled: stuck.length, fields: stuck, reverted };

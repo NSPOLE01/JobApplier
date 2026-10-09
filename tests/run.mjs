@@ -329,6 +329,186 @@ function valueOf(window, selector) {
   check('reverted field is not counted as filled', result.filled, 0);
 }
 
+// --- phone country code ------------------------------------------------------
+{
+  // The common shape: a "Country" dropdown beside the phone box whose options
+  // are dialing codes. +1 is the answer there, not "United States".
+  const { window } = await run(`<form>
+    <label for="ph">Phone</label>
+    <div>
+      <label for="cc">Country</label>
+      <select id="cc"><option value="">Select...</option>
+        <option value="ca">Canada +1</option>
+        <option value="us">United States +1</option>
+        <option value="gb">United Kingdom +44</option>
+      </select>
+      <input id="ph" type="tel">
+    </div>
+  </form>`);
+  check('dial select beside phone gets the code', valueOf(window, '#cc'), 'us');
+  check('phone itself still filled', valueOf(window, '#ph'), '555-111-2222');
+}
+
+{
+  const { window } = await run(`<form><label for="cc">Country</label>
+    <select id="cc"><option value="">Select</option><option value="1">+1</option><option value="44">+44</option></select>
+    <label for="ac">Country</label>
+    <select id="ac"><option value="">Select</option><option value="US">United States</option><option value="CA">Canada</option></select>
+  </form>`);
+  check('bare dialing codes match', valueOf(window, '#cc'), '1');
+  check('address country select still gets the country name', valueOf(window, '#ac'), 'US');
+}
+
+{
+  // No label at all, which is common for these pickers.
+  const { window } = await run(`<form><select id="cc">
+    <option value="">Select</option><option value="us">US (+1)</option><option value="de">Germany (+49)</option>
+  </select></form>`);
+  check('unlabeled dial select still filled', valueOf(window, '#cc'), 'us');
+}
+
+{
+  const { window } = await run(`<form><label for="cc">Phone country code</label><input id="cc" type="text"></form>`);
+  check('country code text box gets +1', valueOf(window, '#cc'), '+1');
+}
+
+{
+  // "Phone country code" must not receive the phone number itself.
+  const { window } = await run(`<form><label for="cc">Phone Country Code</label><input id="cc" type="text"></form>`);
+  check('phone rule does not claim the code box', valueOf(window, '#cc'), '+1');
+}
+
+{
+  const { window } = await run(`<form><label for="cc">Country</label>
+    <select id="cc"><option value="">Select</option><option value="us">United States +1</option><option value="gb">United Kingdom +44</option></select></form>`,
+    {}, { country: '', phone: '+44 20 7123 4567' });
+  check('code derived from an international phone number', valueOf(window, '#cc'), 'gb');
+}
+
+{
+  const { window } = await run(`<form><label for="cc">Country</label>
+    <select id="cc"><option value="">Select</option><option value="us">United States +1</option><option value="in">India +91</option></select></form>`,
+    {}, { phoneCountryCode: '+91' });
+  check('explicit code setting wins', valueOf(window, '#cc'), 'in');
+}
+
+// --- choice questions as radios and buttons ----------------------------------
+{
+  // Greenhouse shape: fieldset + legend + radio inputs.
+  const { window } = await run(`<form>
+    <fieldset>
+      <legend>Gender</legend>
+      <label><input type="radio" name="gender" value="m"> Male</label>
+      <label><input type="radio" name="gender" value="f"> Female</label>
+      <label><input type="radio" name="gender" value="d"> Decline To Self Identify</label>
+    </fieldset>
+    <fieldset>
+      <legend>Are you Hispanic/Latino?</legend>
+      <label><input type="radio" name="hisp" value="y"> Yes</label>
+      <label><input type="radio" name="hisp" value="n"> No</label>
+    </fieldset>
+  </form>`);
+  check('radio gender answered', valueOf(window, 'input[name=gender]:checked'), 'm');
+  check('radio hispanic answered', valueOf(window, 'input[name=hisp]:checked'), 'n');
+}
+
+{
+  // Long EEO veteran wording, as radios.
+  const { window } = await run(`<form><fieldset>
+    <legend>Veteran Status</legend>
+    <label><input type="radio" name="vet" value="1"> I identify as one or more of the classifications of a protected veteran</label>
+    <label><input type="radio" name="vet" value="2"> No, I am not a protected veteran</label>
+    <label><input type="radio" name="vet" value="3"> I don't wish to answer</label>
+  </fieldset></form>`);
+  check('radio veteran status answered', valueOf(window, 'input[name=vet]:checked'), '2');
+}
+
+{
+  const { JSDOM } = await import('jsdom');
+  const dom = new JSDOM(`<!doctype html><body><form>
+    <div class="question"><div class="title">Race</div>
+      <div role="radiogroup">
+        <div role="radio" aria-checked="false">Asian</div>
+        <div role="radio" aria-checked="false">White</div>
+      </div></div></form>`, { url: 'https://jobs.example.com/apply', runScripts: 'outside-only' });
+  const { window } = dom;
+  window.Element.prototype.getBoundingClientRect = () => ({ width: 200, height: 30 });
+  window.eval(contentScript);
+  const clicked = [];
+  window.document.querySelectorAll('[role=radio]').forEach((el) =>
+    el.addEventListener('click', () => clicked.push(el.textContent))
+  );
+  await window.__jobApplierFill(PROFILE, {});
+  check('aria radiogroup: clicks the matching option', clicked.join(','), 'Asian');
+}
+
+{
+  // Button-row shape, plus a submit button that must never be clicked.
+  const { JSDOM } = await import('jsdom');
+  const dom = new JSDOM(`<!doctype html><body><form>
+    <p>Veteran Status</p>
+    <div>
+      <button type="button">I am not a protected veteran</button>
+      <button type="button">I identify as a protected veteran</button>
+      <button type="button">Decline</button>
+    </div>
+    <button type="submit">Submit application</button>
+  </form>`, { url: 'https://jobs.example.com/apply', runScripts: 'outside-only' });
+  const { window } = dom;
+  window.Element.prototype.getBoundingClientRect = () => ({ width: 200, height: 30 });
+  window.eval(contentScript);
+  const clicked = [];
+  window.document.querySelectorAll('button').forEach((el) =>
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      clicked.push(el.textContent);
+    })
+  );
+  await window.__jobApplierFill(PROFILE, {});
+  check('button group: clicks the matching option only', clicked.join(','), 'I am not a protected veteran');
+}
+
+{
+  // An unrelated radio question must be left alone.
+  const { window } = await run(`<form><fieldset>
+    <legend>Are you willing to relocate?</legend>
+    <label><input type="radio" name="rel" value="y"> Yes</label>
+    <label><input type="radio" name="rel" value="n"> No</label>
+  </fieldset></form>`);
+  check('unrelated radio question untouched', valueOf(window, 'input[name=rel]:checked'), '<missing>');
+}
+
+{
+  // Custom fields may answer radios, since you supplied the exact wording.
+  const { window } = await run(`<form><fieldset>
+    <legend>Are you authorized to work in the US?</legend>
+    <label><input type="radio" name="auth" value="y"> Yes</label>
+    <label><input type="radio" name="auth" value="n"> No</label>
+  </fieldset></form>`);
+  check('custom field answers a radio question', valueOf(window, 'input[name=auth]:checked'), 'y');
+}
+
+{
+  // Already answered: leave it unless overwrite is on.
+  const markup = `<form><fieldset><legend>Gender</legend>
+    <label><input type="radio" name="g" value="m"> Male</label>
+    <label><input type="radio" name="g" value="f" checked> Female</label>
+  </fieldset></form>`;
+  const off = await run(markup, { overwrite: false });
+  check('answered question kept', valueOf(off.window, 'input[name=g]:checked'), 'f');
+  const on = await run(markup, { overwrite: true });
+  check('answered question replaced with overwrite', valueOf(on.window, 'input[name=g]:checked'), 'm');
+}
+
+{
+  // Decline wording differs; match any decline-shaped option.
+  const { window } = await run(`<form><fieldset><legend>Gender</legend>
+    <label><input type="radio" name="g" value="m"> Male</label>
+    <label><input type="radio" name="g" value="x"> I don't wish to answer</label>
+  </fieldset></form>`, {}, { gender: 'Decline to self identify' });
+  check('radio decline synonym', valueOf(window, 'input[name=g]:checked'), 'x');
+}
+
 // --- overwrite mode ----------------------------------------------------------
 {
   const markup = `<form><label for="gh">GitHub</label><input id="gh" type="url" value="https://github.com/old"></form>`;
