@@ -48,9 +48,13 @@ async function run(html, options = {}, profileOverride = {}) {
   // jsdom has no layout: fake box sizes, treating display:none subtrees as hidden.
   window.Element.prototype.getBoundingClientRect = function rect() {
     const hidden = this.closest('[style*="display:none"], [style*="display: none"]');
-    return hidden
-      ? { width: 0, height: 0 }
-      : { width: 200, height: 30, top: 0, left: 0, right: 200, bottom: 30, x: 0, y: 0 };
+    if (hidden) return { width: 0, height: 0 };
+    // Visually hidden inputs: the styled-radio pattern.
+    const style = this.getAttribute('style') || '';
+    if (/opacity:\s*0/.test(style) || /width:\s*1px/.test(style)) {
+      return { width: 1, height: 1, top: 0, left: 0, right: 1, bottom: 1, x: 0, y: 0 };
+    }
+    return { width: 200, height: 30, top: 0, left: 0, right: 200, bottom: 30, x: 0, y: 0 };
   };
   window.eval(contentScript);
   const result = await window.__jobApplierFill({ ...PROFILE, ...profileOverride }, options);
@@ -507,6 +511,40 @@ function valueOf(window, selector) {
     <label><input type="radio" name="g" value="x"> I don't wish to answer</label>
   </fieldset></form>`, {}, { gender: 'Decline to self identify' });
   check('radio decline synonym', valueOf(window, 'input[name=g]:checked'), 'x');
+}
+
+// --- styled radios, where the real input is hidden ---------------------------
+{
+  // opacity:0 input behind a visible label, the most common styled pattern.
+  const { window } = await run(`<form><fieldset>
+    <legend>Gender</legend>
+    <label for="g1"><input id="g1" type="radio" name="g" value="m" style="opacity: 0"><span>Male</span></label>
+    <label for="g2"><input id="g2" type="radio" name="g" value="f" style="opacity: 0"><span>Female</span></label>
+  </fieldset></form>`);
+  check('opacity:0 radio still answered', valueOf(window, 'input[name=g]:checked'), 'm');
+}
+
+{
+  // display:none input: the click has to land on the label instead.
+  const { window } = await run(`<form><fieldset>
+    <legend>Veteran Status</legend>
+    <div style="display:none"><input id="v1" type="radio" name="v" value="1"></div>
+    <label for="v1">I am not a protected veteran</label>
+    <div style="display:none"><input id="v2" type="radio" name="v" value="2"></div>
+    <label for="v2">I identify as a protected veteran</label>
+  </fieldset></form>`);
+  check('display:none radio answered through its label', valueOf(window, 'input[name=v]:checked'), '1');
+}
+
+{
+  // A question we recognise whose options match nothing we hold is reported,
+  // rather than silently doing nothing.
+  const { result } = await run(`<form><fieldset>
+    <legend>Gender</legend>
+    <label><input type="radio" name="g" value="a"> Woman</label>
+    <label><input type="radio" name="g" value="b"> Man</label>
+  </fieldset></form>`);
+  check('unmatched choice group reported', JSON.stringify(result.skipped), '[{"key":"gender","value":"Male"}]');
 }
 
 // --- overwrite mode ----------------------------------------------------------

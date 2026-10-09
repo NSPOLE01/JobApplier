@@ -18,6 +18,9 @@ Store your GitHub, LinkedIn, website, contact details and education once, then h
 - **Cmd/Ctrl+Shift+U** opens the popup. Both shortcuts are editable at
   `chrome://extensions/shortcuts`.
 
+A fresh copy of the content script is injected on every fill, so reloading the extension at
+`chrome://extensions` is enough to pick up changes; open tabs do not need a refresh.
+
 By default, fields that already have a value are left alone. Tick **Overwrite fields that already
 have a value** to replace them.
 
@@ -65,6 +68,12 @@ custom fields are ever answered by clicking, so an unrelated question like "Are 
 relocate?" is left alone. Buttons that submit are never clicked: a plain `<button>` defaults to
 submit, so only explicit `type="button"` options, `role="radio"`, and `role="button"` elements are
 eligible.
+
+Sites commonly hide the real `<input type="radio">` behind a styled label, using `opacity: 0`,
+`display: none` or a 1x1 box, so an option counts as present when either the input or its label is
+visible, and the click lands on the label when the input itself is hidden. If a question is
+recognised but none of its options match your answer, the popup says so by name rather than failing
+quietly.
 
 Because every applicant tracking system words these options differently, select matching tries an
 exact option match, then whole-word matching in either direction, then a decline-shaped fallback.

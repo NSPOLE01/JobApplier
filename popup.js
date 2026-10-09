@@ -105,9 +105,11 @@ async function handleFill() {
   setStatus('Scanning page...');
 
   try {
-    const { fields, reverted } = await fillTab(tab, profile, { overwrite: overwriteEl.checked });
+    const { fields, reverted, skipped } = await fillTab(tab, profile, {
+      overwrite: overwriteEl.checked,
+    });
 
-    if (fields.length === 0 && reverted.length === 0) {
+    if (fields.length === 0 && reverted.length === 0 && skipped.length === 0) {
       setStatus('No matching fields found on this page.', 'warn');
       return;
     }
@@ -118,6 +120,14 @@ async function handleFill() {
     if (reverted.length) {
       const lost = [...new Set(reverted.map(humanize))];
       setStatus(`${fields.length ? `${summary}. ` : ''}The page cleared ${lost.join(', ')} — type ${reverted.length === 1 ? 'it' : 'those'} manually.`, 'warn');
+      return;
+    }
+
+    if (skipped.length) {
+      const unmatched = skipped
+        .map((s) => `${humanize(s.key)} ("${s.value}")`)
+        .join(', ');
+      setStatus(`${fields.length ? `${summary}. ` : ''}No option matched ${unmatched}.`, 'warn');
       return;
     }
 

@@ -5,8 +5,8 @@
  * for every frame in the active tab (ATS forms are often inside iframes).
  */
 (() => {
-  if (window.__jobApplierFillLoaded) return;
-  window.__jobApplierFillLoaded = true;
+  // Deliberately no load guard: re-injecting replaces this definition, which
+  // is how a reloaded extension reaches tabs that were already open.
 
   // Ordered most-specific first: whichever rule matches first wins.
   // `patterns` are tested against each text signal separately (so anchored
@@ -491,6 +491,29 @@
   const CHOICE_OPTION_SELECTOR =
     'input[type="radio"], [role="radio"], button[type="button"], [role="button"], [aria-pressed]';
 
+  function labelsOf(el) {
+    return el.labels ? Array.from(el.labels) : [];
+  }
+
+  /**
+   * Styled radio groups hide the real <input> (opacity:0, display:none, or a
+   * 1x1 box) and show a label instead, so the input's own box says nothing
+   * about whether the option is on screen.
+   */
+  function isChoiceVisible(el) {
+    if (el.disabled) return false;
+    if (isVisible(el)) return true;
+    if (labelsOf(el).some(isVisible)) return true;
+    const wrapper = el.parentElement;
+    return Boolean(wrapper && wrapper !== document.body && isVisible(wrapper));
+  }
+
+  /** Click where a person would: the label, when the input itself is hidden. */
+  function clickTarget(el) {
+    if (isVisible(el)) return el;
+    return labelsOf(el).find(isVisible) || el;
+  }
+
   function isChoiceOption(el) {
     if (!el.matches || !el.matches(CHOICE_OPTION_SELECTOR)) return false;
     if (el.type === 'submit' || el.type === 'reset') return false;
@@ -602,11 +625,11 @@
 
   /** Answer radio and button questions. Mutates seenKeys and entries. */
   function fillChoiceGroups(ctx) {
-    const { profile, customFields, opts, seenKeys, entries } = ctx;
+    const { profile, customFields, opts, seenKeys, entries, skipped } = ctx;
     const groups = new Map();
 
     choiceOptions(document).forEach((el) => {
-      if (!isVisible(el)) return;
+      if (!isChoiceVisible(el)) return;
       const container = optionContainer(el);
       if (!container) return;
       if (!groups.has(container)) groups.set(container, []);
@@ -629,10 +652,14 @@
 
       const items = options.map((el) => ({ ref: el, text: optionText(el), value: el.value || '' }));
       const hit = pickOption(items, String(value));
-      if (!hit) return;
+      if (!hit) {
+        skipped.push({ key: match.key, value: String(value) });
+        return;
+      }
 
-      clickOption(hit.ref);
-      flash(hit.ref, true);
+      const target = clickTarget(hit.ref);
+      clickOption(target);
+      flash(target, true);
       seenKeys.add(dedupeKey);
       entries.push({
         label: match.key === '__custom__' ? `custom (${value})` : match.key,
@@ -672,6 +699,7 @@
       document.querySelectorAll('input, textarea, select, [contenteditable="true"]')
     );
     const entries = [];
+    const skipped = [];
     const seenKeys = new Set();
 
     for (const el of candidates) {
@@ -726,9 +754,9 @@
       });
     }
 
-    fillChoiceGroups({ profile, customFields, opts, seenKeys, entries });
+    fillChoiceGroups({ profile, customFields, opts, seenKeys, entries, skipped });
 
     const { stuck, reverted } = await verify(entries);
-    return { filled: stuck.length, fields: stuck, reverted };
+    return { filled: stuck.length, fields: stuck, reverted, skipped };
   };
 })();
