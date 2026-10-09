@@ -12,6 +12,7 @@
         <h1>JobApplier</h1>
       </div>
       <button id="fill" class="primary">Fill this page</button>
+      <button id="draft" class="secondary wide">Draft open-ended answers</button>
       <p id="status" class="status" role="status"></p>
     </header>
 
@@ -105,6 +106,21 @@
             <option>I identify as one or more of the classifications of a protected veteran</option>
             <option>Decline to self identify</option>
           </select>
+        </label>
+      </section>
+
+      <section>
+        <h2>Claude drafting</h2>
+        <p class="hint">
+          For questions like "Why do you want to work here?". Answers are two sentences, drafted
+          from the job posting and your notes below. Read them before you submit.
+        </p>
+        <label>Anthropic API key<input data-local="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" /></label>
+        <label>Model
+          <select data-local="model" id="model"></select>
+        </label>
+        <label>About you
+          <textarea data-field="background" rows="4" placeholder="What you work on, what you're good at, what kind of problem you want to work on next. Claude only uses what you write here, so the more real detail, the less generic the answer."></textarea>
         </label>
       </section>
 

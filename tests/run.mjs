@@ -3,6 +3,12 @@
  * (requires `npm install` for the jsdom devDependency)
  */
 import { JSDOM } from 'jsdom';
+import {
+  buildRequestBody,
+  buildUserMessage,
+  describeApiError,
+  parseAnswers,
+} from '../lib/claude.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +39,7 @@ const PROFILE = {
   hispanicLatino: 'No',
   race: 'Asian',
   veteranStatus: 'I am not a protected veteran',
+  background: 'I build internal tools and care about developer experience.',
   school: 'University of Texas at Austin',
   degree: "Bachelor's Degree",
   discipline: 'Computer Science',
@@ -545,6 +552,106 @@ function valueOf(window, selector) {
     <label><input type="radio" name="g" value="b"> Man</label>
   </fieldset></form>`);
   check('unmatched choice group reported', JSON.stringify(result.skipped), '[{"key":"gender","value":"Male"}]');
+}
+
+// --- open-ended question scanning --------------------------------------------
+function scan(html, { title, url } = {}) {
+  const dom = new JSDOM(`<!doctype html><html><head><title>${title || 'Software Engineer at Acme'}</title></head><body>${html}</body></html>`, {
+    url: url || 'https://boards.greenhouse.io/acme/jobs/1',
+    runScripts: 'outside-only',
+  });
+  const { window } = dom;
+  window.Element.prototype.getBoundingClientRect = () => ({ width: 300, height: 80 });
+  window.eval(contentScript);
+  return { window, scan: window.__jobApplierScanQuestions(PROFILE) };
+}
+
+{
+  const { scan: result } = scan(`
+    <h1>Senior Software Engineer</h1>
+    <div class="job-description">Acme builds payment infrastructure for small businesses. You would work on the ledger service and its public API, mostly in Go. We care about correctness and clear writing.</div>
+    <form>
+      <label for="q1">Why do you want to work at Acme?</label><textarea id="q1"></textarea>
+      <label for="q2">What interests you about this role?</label><textarea id="q2"></textarea>
+      <label for="addr">Street Address</label><textarea id="addr"></textarea>
+      <label for="cl">Cover Letter</label><textarea id="cl"></textarea>
+    </form>`);
+
+  check('open-ended questions collected', result.questions.length, 2);
+  check('question text captured', result.questions[0].question, 'Why do you want to work at Acme?');
+  check('profile-matched textarea excluded', JSON.stringify(result.questions.map((q) => q.id)), '["q0","q1"]');
+  check('company from title', result.page.company, 'Acme');
+  check('role from heading', result.page.role, 'Senior Software Engineer');
+  check('posting text captured', result.page.description.includes('payment infrastructure'), true);
+  check('form fields stripped from posting', result.page.description.includes('Why do you want'), false);
+}
+
+{
+  const { scan: result } = scan(`<form>
+    <label for="a">Why do you want to join us?</label><textarea id="a">Already written</textarea>
+  </form>`);
+  check('answered question marked', result.questions[0].answered, true);
+}
+
+{
+  const { scan: result } = scan(`<form>
+    <label for="a">In 500 characters, why this role?</label><textarea id="a" maxlength="500"></textarea>
+  </form>`);
+  check('maxlength captured', result.questions[0].maxLength, 500);
+}
+
+// --- writing the answers back ------------------------------------------------
+{
+  const { window, scan: result } = scan(`<form>
+    <label for="a">Why do you want to work at Acme?</label><textarea id="a"></textarea>
+  </form>`);
+  const id = result.questions[0].id;
+  const written = await window.__jobApplierWriteAnswers({ [id]: 'Two sentences here. And another.' }, {});
+  check('answer written into the box', valueOf(window, '#a'), 'Two sentences here. And another.');
+  check('answer counted', written.filled, 1);
+}
+
+// --- request building and parsing --------------------------------------------
+{
+  const page = { company: 'Acme', role: 'Engineer', description: 'Acme builds payment rails.' };
+  const questions = [{ id: 'q0', question: 'Why Acme?', maxLength: 300 }];
+  const body = buildRequestBody(page, questions, PROFILE, 'claude-opus-5-5');
+
+  check('model set', body.model, 'claude-opus-5-5');
+  check('no thinking field on opus 5.5', 'thinking' in body, false);
+  check('structured output requested', body.output_config.format.type, 'json_schema');
+  check('effort set low for short answers', body.output_config.effort, 'low');
+  check('refusal fallbacks on', body.fallbacks, 'default');
+
+  const prompt = buildUserMessage(page, questions, PROFILE);
+  check('prompt names the company', prompt.includes('Company: Acme'), true);
+  check('prompt carries the posting', prompt.includes('payment rails'), true);
+  check('prompt carries background notes', prompt.includes('developer experience'), true);
+  check('prompt carries the character limit', prompt.includes('max 300 characters'), true);
+  check('prompt keys the question by id', prompt.includes('[q0]'), true);
+}
+
+{
+  const answers = parseAnswers({
+    stop_reason: 'end_turn',
+    content: [{ type: 'text', text: '{"answers":[{"id":"q0","answer":"Two sentences. Here."}]}' }],
+  });
+  check('answers parsed by id', answers.q0, 'Two sentences. Here.');
+}
+
+{
+  let message = '';
+  try {
+    parseAnswers({ stop_reason: 'refusal', content: [] });
+  } catch (error) {
+    message = error.message;
+  }
+  check('refusal surfaced', message, 'Claude declined to answer these questions.');
+}
+
+{
+  check('401 explained', describeApiError(401, null), 'That API key was rejected. Check it in the popup.');
+  check('429 explained', describeApiError(429, null).includes('Rate limited'), true);
 }
 
 // --- overwrite mode ----------------------------------------------------------

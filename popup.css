@@ -57,6 +57,34 @@ button.primary {
 }
 button.primary:hover { filter: brightness(1.08); }
 
+button.wide { width: 100%; margin-top: 7px; }
+
+label textarea {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--field-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  resize: vertical;
+}
+
+label input[type="password"] {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  padding: 7px 8px;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--field-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
 button.secondary {
   padding: 6px 10px;
   font-size: 12px;

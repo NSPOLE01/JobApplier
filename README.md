@@ -82,6 +82,35 @@ protected veteran", how "Asian" finds "Asian (Not Hispanic or Latino)", and why 
 "Female". Race and Hispanic or Latino stay separate questions, each answered only from its own
 field.
 
+## Open-ended answers with Claude
+
+Questions like "Why do you want to work here?" cannot come from a saved profile, so the popup has a
+second button, **Draft open-ended answers**. It finds the free-text boxes the profile rules do not
+claim, reads the company, role and job posting off the page, sends those along with your background
+notes to the Claude API, and writes a two-sentence answer into each box.
+
+Setup is three fields in the popup's **Claude drafting** section: your Anthropic API key, a model,
+and **About you**. That last one matters most. Claude is instructed never to invent an employer, a
+date, a metric or a project, so the only specifics it can use are the ones you write there. With it
+blank, the answers are honest but generic.
+
+The system prompt bans the usual tells: no "excited", "passionate", "align" or "leverage", no em
+dashes, no exclamation marks, no opening flattery. Answers come back through a JSON schema, so each
+one lands in the box it belongs to.
+
+**Defaults and costs.** The model defaults to Claude Opus 5.5 for the best writing, with Sonnet 5.5
+and Haiku 4.5 in the dropdown if you would rather pay less. A page of questions costs roughly a cent
+on Opus, less on the others. Effort is set to low, since two sentences do not need deep reasoning,
+and refusal fallbacks are enabled so a declined request is retried on another model inside the same
+call.
+
+**Where the key lives.** In `chrome.storage.local`, so it stays on this machine and is never synced
+like the rest of your profile. API calls are made from the extension's service worker, so the key is
+never exposed to the page or to the content script.
+
+Answers are drafts. Read them before you submit: the popup says so every time it finishes, and
+nothing is ever submitted for you.
+
 ## Custom fields
 
 The popup's **Custom fields** section maps any keyword to any value. The keyword is matched against
@@ -125,7 +154,8 @@ npm test
 | `content.js` | Field detection and filling, runs in every frame |
 | `lib/fill-runner.js` | Shared logic: load profile, inject, run across frames |
 | `popup.html` / `popup.css` / `popup.js` | Profile editor and Fill button |
-| `background.js` | Keyboard shortcut handler and badge feedback |
+| `background.js` | Keyboard shortcut, badge feedback, and Claude API calls |
+| `lib/claude.js` | Prompt building, request shape, response parsing |
 | `tests/run.mjs` | jsdom tests for the matching rules |
 
 ## Notes and limits

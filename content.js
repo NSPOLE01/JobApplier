@@ -692,6 +692,155 @@
     });
   }
 
+  // --- open-ended questions --------------------------------------------------
+  // Free-text questions ("Why do you want to work here?") are answered by
+  // Claude rather than from the profile, so they are collected, not filled.
+
+  function metaContent(selectors) {
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      const value = node && (node.getAttribute('content') || node.textContent);
+      if (value && value.trim()) return value.trim();
+    }
+    return '';
+  }
+
+  function companyName() {
+    const meta = metaContent(['meta[property="og:site_name"]', 'meta[name="application-name"]']);
+    if (meta) return meta;
+
+    // Greenhouse and Lever put the company in the title: "Role at Company".
+    const title = document.title || '';
+    const atCompany = title.match(/\bat\s+([^|\-\u2013]+)$/i);
+    if (atCompany) return atCompany[1].trim();
+
+    const host = location.hostname.replace(/^www\./, '');
+    const embedded = host.match(/^(?:boards|jobs|job-boards|apply|careers)\.(?:greenhouse|lever|ashbyhq|workable)\.io$/);
+    if (!embedded) {
+      const bare = host.split('.')[0];
+      if (bare && bare.length > 2) return bare;
+    }
+    return title.split(/[|\-\u2013]/)[0].trim();
+  }
+
+  function roleName() {
+    const heading = document.querySelector('h1, [class*="posting-headline"] h2, [class*="job-title"]');
+    const text = textOf(heading, 200);
+    if (text) return text;
+    return metaContent(['meta[property="og:title"]']) || (document.title || '').split(/[|\-\u2013]/)[0].trim();
+  }
+
+  /** The posting text, without the form itself or the site chrome. */
+  function postingText() {
+    const scopes = [
+      document.querySelector('[class*="job-description"], [class*="posting-description"], [id*="job-description"]'),
+      document.querySelector('main'),
+      document.body,
+    ];
+    let best = '';
+    for (const scope of scopes) {
+      if (!scope) continue;
+      const clone = scope.cloneNode(true);
+      clone
+        .querySelectorAll('script, style, nav, header, footer, form, input, textarea, select, button')
+        .forEach((node) => node.remove());
+      const text = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+      // A specific container wins outright; otherwise keep the fullest text.
+      if (text.length > 400) return text.slice(0, 8000);
+      if (text.length > best.length) best = text;
+    }
+    return best.length > 40 ? best.slice(0, 8000) : '';
+  }
+
+  function pageContext() {
+    return {
+      company: companyName(),
+      role: roleName(),
+      url: location.href,
+      description: postingText(),
+    };
+  }
+
+  function questionTextFor(el) {
+    const signals = signalsFor(el);
+    // The longest signal is the question; attribute names are the short ones.
+    return signals
+      .map((part) => part.trim())
+      .filter((part) => part.length > 12 && /\s/.test(part))
+      .sort((a, b) => b.length - a.length)[0] || '';
+  }
+
+  /**
+   * An open-ended box is a textarea (or rich-text area) that the profile
+   * rules do not claim and whose label reads like a question.
+   */
+  function isOpenEnded(el, customFields) {
+    if (!(el instanceof HTMLTextAreaElement) && !el.isContentEditable) return false;
+    if (!isVisible(el)) return false;
+
+    const signals = signalsFor(el);
+    if (signals.length === 0) return false;
+    if (matchKey(signals, customFields)) return false;
+
+    const question = questionTextFor(el);
+    if (!question) return false;
+    // Resumes and cover letters pasted wholesale are not two-sentence answers.
+    return !/resume|cv\b|cover\s*letter/i.test(question);
+  }
+
+  window.__jobApplierScanQuestions = function scanQuestions(profile) {
+    const customFields = Array.isArray(profile && profile.customFields) ? profile.customFields : [];
+    const questions = [];
+
+    Array.from(document.querySelectorAll('textarea, [contenteditable="true"]')).forEach((el, index) => {
+      if (!isOpenEnded(el, customFields)) return;
+
+      const id = el.getAttribute('data-jobapplier-qid') || `q${index}`;
+      el.setAttribute('data-jobapplier-qid', id);
+
+      const maxAttr = Number(el.getAttribute('maxlength'));
+      questions.push({
+        id,
+        question: questionTextFor(el),
+        maxLength: Number.isFinite(maxAttr) && maxAttr > 0 ? maxAttr : null,
+        answered: Boolean((el.value || el.textContent || '').trim()),
+      });
+    });
+
+    return { page: pageContext(), questions };
+  };
+
+  window.__jobApplierWriteAnswers = async function writeAnswers(answers, options) {
+    const opts = options || {};
+    const entries = [];
+
+    const byId = new Map();
+    document
+      .querySelectorAll('[data-jobapplier-qid]')
+      .forEach((el) => byId.set(el.getAttribute('data-jobapplier-qid'), el));
+
+    Object.keys(answers).forEach((id) => {
+      const el = byId.get(id);
+      if (!el) return;
+      const current = (el.value || el.textContent || '').trim();
+      if (current && !opts.overwrite) return;
+
+      const value = String(answers[id]);
+      if (el.isContentEditable) {
+        el.textContent = value;
+        fire(el, inputEvent(value));
+        fire(el, new Event('change', { bubbles: true }));
+      } else {
+        typeInto(el, value);
+      }
+      flash(el, true);
+      entries.push({ label: id, read: () => readBack(el), expected: readBack(el) });
+    });
+
+    const { stuck, reverted } = await verify(entries);
+    return { filled: stuck.length, fields: stuck, reverted, skipped: [] };
+  };
+
   window.__jobApplierFill = async function fill(profile, options) {
     const opts = options || {};
     const customFields = Array.isArray(profile.customFields) ? profile.customFields : [];
